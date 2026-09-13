@@ -1,0 +1,24 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Compilar y cargar debug por COM4",
+            "type": "process",
+            "command": "${env:USERPROFILE}\\.platformio\\penv\\Scripts\\platformio.exe",
+            "args": [
+                "run",
+                "--environment",
+                "esp32-c3-debug",
+                "--target",
+                "upload",
+                "--upload-port",
+                "COM4"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": ["$gcc"],
+            "group": "build"
+        }
+    ]
+}

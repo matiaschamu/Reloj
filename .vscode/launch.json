@@ -1,0 +1,28 @@
+// Depuracion del ESP32-C3: carga por USB serie y breakpoints por USB/JTAG.
+
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "platformio-debug",
+            "request": "launch",
+            "name": "PIO Debug",
+            "executable": "${workspaceFolder}/.pio/build/esp32-c3-debug/firmware.elf",
+            "projectEnvName": "esp32-c3-debug",
+            "toolchainBinDir": "${env:USERPROFILE}/.platformio/packages/toolchain-riscv32-esp/bin",
+            "internalConsoleOptions": "openOnSessionStart",
+            "loadMode": "manual",
+            "preLaunchTask": "Compilar y cargar debug por COM4"
+        },
+        {
+            "type": "platformio-debug",
+            "request": "launch",
+            "name": "PIO Debug (without uploading)",
+            "executable": "${workspaceFolder}/.pio/build/esp32-c3-debug/firmware.elf",
+            "projectEnvName": "esp32-c3-debug",
+            "toolchainBinDir": "${env:USERPROFILE}/.platformio/packages/toolchain-riscv32-esp/bin",
+            "internalConsoleOptions": "openOnSessionStart",
+            "loadMode": "manual"
+        }
+    ]
+}
