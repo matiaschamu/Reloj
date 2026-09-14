@@ -51,6 +51,24 @@ definitivo, considerar un 74AHCT125 entre las señales de 3,3 V y el MAX7219.
   transformación vertical. No corregir la orientación dentro de cada fuente.
 - Brillo inicial: 2 sobre 15.
 
+## Web local
+
+- Servir el panel de control en `http://reloj.local/` mientras haya Wi-Fi.
+- Permitir brillo de 0 a 15 sin persistirlo; cada reinicio vuelve al valor 2.
+- Exponer diagnóstico sin secretos mediante `GET /api/status` y aceptar cambios
+  de brillo solamente por `POST /api/brightness?value=0..15`.
+- Mostrar el RSSI en dBm con su signo y una interpretación orientativa: desde
+  -55 excelente, desde -67 muy buena, desde -74 buena, desde -85 regular, desde
+  -92 débil y por debajo muy débil. Aclarar que más cerca de cero es mejor.
+- `POST /api/weather/refresh` debe reutilizar la tarea meteorológica existente;
+  nunca ejecutar HTTP de Open-Meteo dentro del manejador web.
+- Atender el servidor desde `loop()` sin `delay()` y detenerlo al perder Wi-Fi.
+- Probar el gateway por ICMP cada 30 segundos mediante la tarea interna de ping.
+  Si falla tres veces mientras `WiFi.status()` todavía indica conexión, reiniciar
+  deliberadamente el enlace, con al menos cinco minutos entre recuperaciones.
+- El servidor no tiene autenticación: mantenerlo limitado a la red local y no
+  documentar ni recomendar la publicación del puerto 80 en Internet.
+
 ## Fuentes y vistas
 
 - `BIG_DIGITS`: fuente 4x7 gruesa, estilo segmentos, usada para horas y
@@ -138,10 +156,11 @@ granularidad física mínima aunque haya cambiado un solo píxel.
 - Mantener `WiFi.setSleep(false)` mientras se diagnostique `AUTH_EXPIRE`; es
   una prueba recomendada por Espressif cuando el AP no responde al pedido de
   autenticación.
-- Gestionar la potencia de transmisión de forma adaptativa: usar
-  `WIFI_POWER_8_5dBm` durante asociación/reconexión y cambiar a
-  `WIFI_POWER_19_5dBm` solamente después de `STA_GOT_IP`. Ante
-  `STA_DISCONNECTED`, volver inmediatamente a 8,5 dBm.
+- Mantener `WIFI_POWER_8_5dBm` durante asociación, conexión y reconexión. Con
+  RSSI de -37 dBm hay margen de sobra y se observó que, tras subir a 19,5 dBm,
+  el ESP conservaba asociación e IP pero dejaba de cursar tráfico IP. La versión
+  fija en 8,5 dBm restauró ping, HTTP y conectividad general en hardware. No
+  volver a 19,5 dBm sin confirmar ping, HTTP y NTP sostenidos.
 - La combinación de escaneo completo, umbral WPA compatible, modem-sleep
   desactivado y potencia de 8,5 dBm quedó verificada en hardware: conectó al
   BSSID `A0:F4:79:B8:31:1C`, canal 1, con RSSI -49 dBm; obtuvo IP
@@ -156,12 +175,27 @@ granularidad física mínima aunque haya cambiado un solo píxel.
   no se consideran ya la causa confirmada del fallo Wi-Fi: el problema reapareció
   con la alimentación mejorada y capacitores de desacoplo.
 - Zona POSIX: `<-03>3`, equivalente a Argentina UTC-3 sin horario de verano.
-- Servidores NTP: `pool.ntp.org`, `time.google.com` y `time.cloudflare.com`.
+- Servidores NTP: `ntp2.hidro.gob.ar` (Observatorio Naval),
+  `ntp.inti.gob.ar` (INTI) y `time.cloudflare.com` (respaldo global). Los tres
+  respondieron 3 de 3 consultas desde la red de instalación y usan tiempo UTC
+  convencional, sin mezclarlo con el leap-smear de Google.
 - Intervalo SNTP: 3.600.000 ms, una hora.
+- `ntpStarted` indica solamente que SNTP fue configurado, no que llegó una
+  respuesta. Antes de la primera hora válida, reiniciar SNTP cada 30 segundos de
+  forma no bloqueante y registrar cada intento. Después del primer éxito, el
+  intervalo normal de resincronización permanece en una hora.
+- La callback de sincronización debe conservar para la web la última marca de
+  tiempo aceptada, en hora local, UTC y epoch con microsegundos, además del total
+  de respuestas. La API SNTP disponible no identifica cuál servidor contestó
+  ni expone el paquete recibido; indicarlo explícitamente en el panel.
 - Antes de una hora válida, mostrar la animación NTP. No mostrar una hora basada
   en el valor inicial del sistema.
 - Si Wi-Fi cae después de sincronizar, el reloj local debe continuar y Wi-Fi
   debe intentar reconectarse en segundo plano.
+- No asumir que `WL_CONNECTED` garantiza tráfico: se observó el bucle activo y
+  reintentando NTP mientras el equipo no figuraba por ARP ni respondía ping/HTTP.
+  La comprobación ICMP del gateway distingue este enlace fantasma de un fallo
+  exclusivo de NTP o del servidor web.
 - Una vez conectado, anunciar `reloj.local` con ESPmDNS y usar también `reloj`
   como hostname DHCP. Detener mDNS al perder Wi-Fi y reiniciarlo al reconectar.
 
@@ -197,8 +231,17 @@ pedido del usuario y sin confirmar que la placa correcta está conectada.
 - Compila con `build_type = debug`, `-Og`, símbolos GDB nivel 3 y `ggdb3`.
 - Usa `debug_tool = esp-builtin`, pero carga mediante `upload_protocol =
   esptool` por `COM4`. JTAG se reserva para la sesión de depuración.
-- Usa JTAG a 1 MHz (`debug_speed = 1000`) para una conexión conservadora; a
-  5 MHz se observó `LIBUSB_ERROR_PIPE` durante una prueba de carga del firmware.
+- Usa JTAG a 40 MHz (`debug_speed = 40000`), la frecuencia base máxima anunciada
+  por el USB/JTAG integrado. Con la alimentación corregida, OpenOCD completó
+  pruebas escalonadas a 10, 20 y 40 MHz, con tres ciclos de pausa/continuación
+  en cada velocidad, sin `LIBUSB_ERROR_PIPE`. GDB también leyó registros y
+  ejecutó un paso de instrucción a 40 MHz. No se validó todavía una sesión larga.
+- El `LIBUSB_ERROR_PIPE` anterior apareció durante una carga JTAG larga. Se
+  conserva la carga por `esptool` y se usa JTAG solamente para depurar.
+- Una nueva prueba escribió por JTAG a 40 MHz una imagen de aplicación de
+  950.272 bytes, a unos 78 KB/s, y finalizó con `Verify OK`. Es un primer éxito
+  de carga con la alimentación corregida; conservar por ahora el flujo habitual
+  por `esptool` hasta repetir cargas y sesiones largas sin fallos.
 - Usa `debug_load_mode = manual`; la tarea de VS Code carga primero el firmware
   debug mediante el bootloader serie y OpenOCD no vuelve a escribir la flash.
 - Los dos entornos definen `ARDUINO_USB_MODE=1` y

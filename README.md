@@ -5,6 +5,12 @@ principal muestra `HH:MM SS`, con horas y minutos más grandes que los segundos.
 Cuando está conectado también anuncia el nombre local `reloj.local` mediante
 mDNS.
 
+El mismo nombre abre una web de control en `http://reloj.local/`. Desde allí se
+puede cambiar inmediatamente el brillo de la matriz entre 0 y 15, consultar el
+estado de Wi-Fi, NTP, memoria y clima, y solicitar una actualización
+meteorológica fuera del intervalo automático. El brillo vuelve al valor inicial
+2 después de reiniciar el dispositivo.
+
 Los números usan una fuente de segmentos compacta y gruesa: 4x7 para horas y
 minutos y 3x5 para segundos y datos. Los dos puntos ocupan dos píxeles de alto
 en cada marca para mejorar su lectura a distancia.
@@ -81,13 +87,53 @@ No alimentar las matrices desde un GPIO.
 - Durante la conexión Wi-Fi y la espera NTP se encienden píxeles al azar, uno
   por cuadro y sin repetir. Al completar la matriz, se limpia y vuelve a empezar.
 - Cuando llega una hora válida comienza la vista normal del reloj.
-- SNTP consulta tres servidores y se resincroniza cada hora.
+- SNTP consulta `ntp2.hidro.gob.ar`, `ntp.inti.gob.ar` y
+  `time.cloudflare.com`, y se resincroniza cada hora.
+- Si todavía no llegó la primera hora válida, SNTP se reinicia cada 30 segundos
+  sin bloquear el reloj. La web muestra intentos, cantidad de respuestas, la
+  última hora aceptada y su epoch con microsegundos.
 - La zona horaria configurada es Argentina, UTC-3.
 - El monitor serie informa el código de desconexión Wi-Fi y la IP obtenida.
 - Al obtener red, el dispositivo inicia mDNS como `reloj.local`; si pierde
   Wi-Fi, lo detiene y vuelve a iniciarlo automáticamente al reconectar.
-- La radio usa 8,5 dBm durante la asociación y reconexión, y sube a 19,5 dBm
-  después de obtener IP para mejorar el margen del enlace.
+- El servidor web se inicia y detiene junto con la conexión. El estado completo
+  también está disponible como JSON en `http://reloj.local/api/status`.
+- La radio permanece en 8,5 dBm durante asociación y conexión. Con la señal
+  fuerte observada no hace falta elevarla a 19,5 dBm, nivel que coincidió con
+  una asociación aparentemente válida pero sin tráfico IP. Mantener 8,5 dBm
+  restauró la conectividad y es el valor validado para este montaje.
+
+### Web de control y diagnóstico
+
+La página funciona únicamente dentro de la red local y se actualiza cada dos
+segundos. No publica el SSID ni la contraseña. Sus rutas son:
+
+- `GET /`: panel web adaptable a computadora o teléfono.
+- `GET /api/status`: diagnóstico en JSON.
+- `POST /api/brightness?value=0..15`: cambia el brillo del MAX7219.
+- `POST /api/weather/refresh`: programa una consulta meteorológica inmediata.
+
+No hay autenticación: cualquier equipo que pueda acceder a `reloj.local` en la
+misma red puede cambiar el brillo o pedir una actualización del clima. No se
+debe exponer el puerto 80 del reloj a Internet.
+
+El panel prueba además el gateway local por ICMP cada 30 segundos y muestra la
+latencia o la cantidad de fallos. Si el gateway falla tres veces seguidas aunque
+Arduino todavía informe Wi-Fi conectado, el firmware reinicia deliberadamente
+el enlace. Hay un enfriamiento de cinco minutos para evitar reconexiones en
+bucle si una red bloquea ICMP.
+
+La señal Wi-Fi se muestra como RSSI con valores negativos: `-38 dBm`, por
+ejemplo, es una señal excelente. Cuanto más cerca de cero, más fuerte es la
+señal. La etiqueta cualitativa de la página es orientativa y tiene en cuenta el
+rango recomendado como referencia por Espressif y la sensibilidad del módulo
+ESP32-C3-MINI-1.
+
+El diagnóstico NTP distingue entre haber iniciado el cliente y haber recibido
+una respuesta válida. Presenta la última marca de tiempo aceptada en hora local,
+UTC y epoch. La interfaz SNTP usada por el framework no informa cuál de los tres
+servidores configurados respondió ni entrega el paquete NTP crudo, por lo que el
+panel enumera los servidores consultados y señala esa limitación.
 
 ### Diagnóstico Wi-Fi
 
